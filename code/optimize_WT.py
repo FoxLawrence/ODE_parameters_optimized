@@ -4,68 +4,47 @@ from scipy.optimize import differential_evolution, least_squares
 import matplotlib.pyplot as plt
 import pandas as pd
 from multiprocessing import Pool
-from tqdm import tqdm
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+import time
+
+# === Definition of path function ===
+def get_paths(keyword):
+    return {
+        "data": f"../exp_data/{keyword}_data.csv",          
+        "output_csv": f"../opt_par/{keyword}/parameters_{keyword}.csv",
+        "output_plot": f"../plot/{keyword}/optimized_logx_{keyword}.png"
+    }
+
+# Which sample data used 
+sample_name = "WT"
+
+PATHS = get_paths(sample_name)
+k_1 = 4e6
+sk = 1e-06
+# Neglect the warnings 
 np.seterr(all='ignore')
 np.seterr(over='ignore')
-# 实验数据读取
-#def exp_data():
-#    data = np.loadtxt(
-#        '250522 Scenedesmus data experiment_1.txt',
-#        delimiter='\t',
-#        converters={0: lambda s: float(s.decode().replace(',','.')),
-#                    1: lambda s: float(s.decode().replace(',','.'))},
-#        skiprows=1
-#    )
-#    t_exp, FLY_exp = data[:,0], data[:,1]
-#    
-#    return t_exp, FLY_exp
-# 将实验数据的时间，和FLY值分别赋予t_exp, FLY_exp
 
+# No test prove that the cpu_core can accelerate this caluation
+cpu_core = 1 
 
-# 另一种读取实验数据的方式，分别将时间和FLY值赋予experimental_times和experimental_value
-experimental_data = pd.read_csv('wt.csv')  # 
+# If you want to use another csv make sure the csv only have 2 conlums. 1st conlum should be named time and 2nd conlum should be named values or you can change the code to correspond the file
+experimental_data = pd.read_csv(PATHS["data"])  # 
 t_exp = experimental_data['time'].values #
-FLY_exp = experimental_data['value'].values #
+FLY_exp = experimental_data['values'].values #
+def format_time(seconds):
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = round(seconds % 60, 2)
+    return f"{days}天 {hours}小时 {minutes}分钟 {secs}秒"
 
-def plot_exp():
-    plt.figure(figsize=(5,3))
-    plt.scatter(t_exp, FLY_exp, s=8, label='Experimentdata')
-    plt.xscale('log')
-    plt.xlabel('t, с'); plt.ylabel('FLY')
-    plt.legend(); plt.tight_layout()
-    plt.show()
 
-# plot_exp
-
-# 定义参数 p means parameters
+# initial parameters
 p = dict(
-    del1 = 0.5,
-    del2 = 0.3,
-    del3 = 0.1,
-    del4 = 0.1,
-    # del1, del2, del3, del4 = params[:4]
-    Pool1 = 16.2,
-    Pool2 = 1.62,
 
-    k1= 3e9,  #原数值0.54 介于k3 = 3e9 fixed 
-    k_1= 4e6, # fixed from article
-    # antn=100, # fixed article is 112
-    k2=320000000, # fixed 32000000000/100
-    KK2 = 20, # fixed from article
-    k3 = 3e9, # fixed from article
-    KK3 = 1e7, # fixed from article
-    KK4 = 80, # fixed from article
-    tauw = 0.1, # fixed from article
-#   k4 = lambda t: 5e4 * np.exp(-t/0.1) + 3.8,
-#   k4 = 5e4 * np.exp(-t/tauw)+3.8, # fixed from article 
-    k7 = 2500, # fixed from article
-    KK7 = 12.5, # fixed from article
-    k14 = 1600, # fixed from article
-    KK14 = 10, # fixed from article
-    k21 = 800, # fixed from article and k21-27 = 800
-    KK21 = 10, # fixed from article
-    k34 = 100, # fixed from article and k34-40 = 100
-    KK34 = 20, # fixed from article
     k41 = 0.18,
     KK41 = 1000,
     k51 = 10000,
@@ -86,10 +65,6 @@ p = dict(
     kda = 150000,
     cm = 5,
     d = 0.5,
-    sk=1e-6, # 荧光比例常数，线性缩放FLY幅值 1e-16
-    
-    #tauw1 = 0.4 #未被使用
-
     tauhp = 10,
     tauhp1 = 100,
     tauhn = 720,
@@ -117,45 +92,48 @@ y0[I['PQH2']] = 0.8
 
 
 # 定义时间间隔 1µs … 10s 10** 对结果取10的幂 最后一个参数决定了取多少个间隔
-t_eval = 10**np.linspace(-6, 4, 601)
-
+# t_eval = 10**np.linspace(-6, 4, 601)
 
 # ======================
-# 反应网络ODE定义
+# Definition of ODE funcion
 # ======================
-    
+
+# These two variables need to be declared globally because they need to be called when calculating FLY
+
 def reaction_system(params):
 
-
-
+    # del1 = params['del1']
+    # del2 = params['del2']
+    # del3 = params['del3']
+    # del4 = params['del4']
     
-
-
-    del1 = params['del1']
-    del2 = params['del2']
-    del3 = params['del3']
-    del4 = params['del4']
-    
-    Pool1 = params['Pool1']
-    Pool2 = params['Pool2']
-
-    k1 = params['k1']
-    k_1 = params['k_1']
-    k2 = params['k2']
-    KK2 = params['KK2']
-    k3 = params['k3'] 
-    KK3 = params['KK3']
-    KK4 = params['KK4']
-    tauw = params['tauw']
-
-    k7 = params['k7']
-    KK7 = params['KK7']
-    k14 = params['k14']
-    KK14 = params['KK14']
-    k21 = params['k21']
-    KK21 = params['KK21']
-    k34 = params['k34']
-    KK34 = params['KK34']
+    # Pool1 = params['Pool1']
+    # Pool2 = params['Pool2']
+    del1 = 0.5
+    del2 = 0.3
+    del3 = 0.1
+    del4 = 0.1
+    Pool1 = 16.2
+    Pool2 = 1.62
+    k1= 3e9  #原数值0.54 介于k3 = 3e9 fixed 
+    #k_1= 4e6 # fixed from article
+    # antn=100, # fixed article is 112
+    k2 = 320000000 # fixed 32000000000/100
+    KK2 = 20 # fixed from article
+    k3 = 3e9 # fixed from article
+    KK3 = 1e7 # fixed from article
+    KK4 = 80 # fixed from article
+    tauw = 0.1 # fixed from article
+    #k4 = 5e4 * np.exp(-t/tauw)+3.8, # fixed from article 
+    k7 = 2500 # fixed from article
+    KK7 = 12.5 # fixed from article
+    k14 = 1600 # fixed from article
+    KK14 = 10 # fixed from article
+    k21 = 800 # fixed from article and k21-27 = 800
+    KK21 = 10 # fixed from article
+    k34 = 100 # fixed from article and k34-40 = 100
+    KK34 = 20 # fixed from article
+   
     k41 = params['k41']
     KK41 = params['KK41']
     k51 = params['k51']
@@ -172,7 +150,6 @@ def reaction_system(params):
     kda = params['kda']
     cm = params['cm']
     d = params['d']
-    sk= params['sk'] # 荧光比例常数，线性缩放FLY幅值 1e-16
     
     #tauw1 = 0.4 #未被使用
 
@@ -182,7 +159,7 @@ def reaction_system(params):
     taupt = params['taupt']
     taupt1 = params['taupt1']
     
-    k5 = k2 / 10
+    k5 = k2/10
     k6 = k1
     k8 = k1
     k9 = k1
@@ -384,108 +361,40 @@ def reaction_system(params):
     return rhs
 
 
-
-# 对反应方程进行ODE求解
-def simulate_system():
-    results = {
-        'time': [],
-        'FLY': []
-    }
-    # solver = reaction_system(t,y)
-    solver_rhs = reaction_system(p)
-    # 可能需要添加第一步的时间要到e-10的量级
-    sol = solve_ivp(
-        solver_rhs,
-        (t_eval[0], t_eval[-1]), # 设置步长范围
-        y0,                      # 设置ODE方程
-        t_eval = t_eval,
-        method = 'BDF',          # 设置计算方法
-        rtol = 1e-6,
-        atol = 1e-9)
-
-
-    Y = sol.y.T
-    time_log = np.log10(sol.t*1e3) # 以毫秒作单位
-
-    obs = dict(
-        FLY = p['sk']* p['k_1']*(Y[:,I['x2']]+Y[:,I['x6']]
-                                +Y[:,I['y2']]+Y[:,I['y6']]
-                                +Y[:,I['z2']]+Y[:,I['z6']]
-                                +Y[:,I['g2']]+Y[:,I['g6']]),
-        # pott = 200*pt_arr,
-        # pHn  = -np.log10(0.001*Hn_arr)*0.4,
-        # pHp  = -np.log10(0.001*Hp_arr)*0.4,
-        # dpH  = (-np.log10(0.001*Hn_arr)*0.4
-        #         - (-np.log10(0.001*Hp_arr)*0.4)),
-        # xz2  = 1.8e9*(Y[:,I['x2']]+Y[:,I['y2']]+Y[:,I['g2']]+Y[:,I['z2']])/1.62,
-        # xz6  = 1.8e9*(Y[:,I['x6']]+Y[:,I['y6']]+Y[:,I['g6']]+Y[:,I['z6']])/1.62,
-        # xz4  = 500*(Y[:,I['x4']]+Y[:,I['y4']]+Y[:,I['g4']]+Y[:,I['z4']])/1.62,
-        # xz5  = 500*(Y[:,I['x5']]+Y[:,I['y5']]+Y[:,I['g5']]+Y[:,I['z5']])/1.62,
-        # xz45 = (500*(Y[:,I['x4']]+Y[:,I['y4']]+Y[:,I['g4']]+Y[:,I['z4']])
-        #         +500*(Y[:,I['x5']]+Y[:,I['y5']]+Y[:,I['g5']]+Y[:,I['z5']]))/1.62,
-        # yy1  = 1000*Y[:,I['y1']]/1.62,
-        # yy17 = 1000*(Y[:,I['y1']]+Y[:,I['y2']]+Y[:,I['y3']]+Y[:,I['y4']]
-        #              +Y[:,I['y5']]+Y[:,I['y6']]+Y[:,I['y7']])/1.62,
-        # pqhh = Y[:,I['PQH2']]/(Y[:,I['PQH2']]+Y[:,I['PQ']]+1e-12),
-        # xz3  = 4.5e6*(Y[:,I['x3']]+Y[:,I['y3']]+Y[:,I['g3']]+Y[:,I['z3']])/1.62,
-        # xz7  = 4.5e6*(Y[:,I['x7']]+Y[:,I['y7']]+Y[:,I['g7']]+Y[:,I['z7']])/1.62,
-        # xz347 = 40*np.array(p680_hist)/1.62,
-        # vwoc = 100*(V_hist[:,11]+V_hist[:,4]+V_hist[:,18]+V_hist[:,31]),
-        # vv41 = 10*V_hist[:,41],
-        # xg4  = 40*(Y[:,I['x4']]+Y[:,I['g4']])/1.62,
-        # gg5  = 7050*Y[:,I['g5']]/1.62,
-        # yy5  = 7050*Y[:,I['y5']]/1.62,
-        # zz5  = 7050*Y[:,I['z5']]/1.62,
-        # xx5  = 7050*Y[:,I['x5']]/1.62,
-    )
-
-    # 储存FLY
-    df = pd.DataFrame({
-        'time': sol.t,
-        'FLY': obs['FLY']
-    }).dropna()
-    # 作图
-
-    plt.figure(figsize=(12, 6))
-    # plt.plot(experimental_times, experimental_value, 'o', label='Experiment', markersize=6, alpha=0.7)
-    plt.plot(t_eval, obs['FLY'], '-', label='Model', linewidth=2)
-    plt.xlabel('Time (ms)')
-    plt.ylabel('FLY Intensity')
-    plt.title('Model Data')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('comparison_plot.png', dpi=300)
-    plt.show()
-
-    
-    return df
-
-
 # 筛选大于0的参数
 param_keys = [k for k,v in p.items() if v>0]
 # 使用x0储存这些参数
 x0 = np.array([p[k] for k in param_keys])
 # 用u0进行对数化运算
 u0 = np.log(x0)
-
-# 2) задаём границы: каждый параметр в [p/1e3, p*1e3]
-p_low  = {k: max(p[k]*1e-3, 1e-12) for k in param_keys}
+p_low  = {k: max(p[k]*1e-3, 1e-12) for k in param_keys}  ## 
 p_high = {k:        p[k]*1e3          for k in param_keys}
 u_low  = np.log([p_low[k]  for k in param_keys])
 u_high = np.log([p_high[k] for k in param_keys])
 
-    
+bounds = list(zip(u_low, u_high))
+
 def simulate_FLY_from_u(u):
-    # пробрасываем оптимизируемые
+
     p_fit = p.copy()
     for k,val in zip(param_keys, np.exp(u)):
         p_fit[k] = val
     rhs = reaction_system(p_fit)
-    sol = solve_ivp(rhs, (t_exp[0],t_exp[-1]), y0,
-                    t_eval=t_exp, method='BDF',
-                    rtol=1e-6, atol=1e-9)
+    sol = solve_ivp(
+        rhs,
+        (t_exp[0], t_exp[-1]), # 设置步长范围
+        y0,                      # 设置ODE方程
+        t_eval = t_exp,
+        method = 'BDF',          # 设置计算方法 ‘BDF’ 'LSODA'
+        rtol = 1e-4,
+        atol = 1e-7,
+        #first_step = 1e-10,
+        #min_step = 1e-12
+    )
+
+
     Y = sol.y.T
-    FLY = p_fit['sk']*p_fit['k_1']*(
+    FLY = sk*k_1*(
             Y[:,I['x2']]+Y[:,I['x6']]
           + Y[:,I['y2']]+Y[:,I['y6']]
           + Y[:,I['z2']]+Y[:,I['z6']]
@@ -493,23 +402,15 @@ def simulate_FLY_from_u(u):
         )
     return FLY
 
-param_keys = [k for k,v in p.items() if v>0]
-x0 = np.array([p[k] for k in param_keys])
-u0 = np.log(x0)
 
-# 2) задаём границы: каждый параметр в [p/1e3, p*1e3]
-p_low  = {k: max(p[k]*1e-3, 1e-12) for k in param_keys}
-p_high = {k:        p[k]*1e3          for k in param_keys}
-u_low  = np.log([p_low[k]  for k in param_keys])
-u_high = np.log([p_high[k] for k in param_keys])
-# границы в лог-преобразовании (u = ln p), как мы уже делали:
-bounds = list(zip(u_low, u_high))
-
-# 1) Глобальный поиск (минимизируем сумму квадратов относительной невязки)
 def loss_sum(u):
-    r = residuals_rel_safe(u)
-    return np.sum(r**2)
-
+    try:
+        r = residuals_rel_safe(u)
+        return np.sum(r**2)
+    except:
+        # 返回大值使优化器避开无效参数
+        return np.inf
+        
 def residuals_rel_safe(u):
     try:
         FLY = simulate_FLY_from_u(u)
@@ -518,52 +419,68 @@ def residuals_rel_safe(u):
             raise ValueError
         return r
     except:
-        # большой штраф, если ODE не решилось или появились NaN/∞
         return np.ones_like(FLY_exp) * 1e6
 
-
-def optimize_with_progress():
-    with tqdm(total=1000, desc="Differential Evolution") as pbar:
-        def callback(xk, convergence):
-            pbar.update(1)
-        
-        result_de = differential_evolution(
+def de():
+        return differential_evolution(
             loss_sum,
             bounds,
-            maxiter=1000,
+            maxiter=100,
             popsize=15,
             tol=1e-3,
-            callback=callback,
-            polish=False,
+            workers= cpu_core,
+            polish=False,   
+            updating='deferred',
             disp=True
         )
-    return result_de
-
-# result_de = differential_evolution(
-#     loss_sum,
-#     bounds,
-#     maxiter=1000,
-#     popsize=15,
-#     tol=1e-3,
-#     polish=False,    # не полируем сразу встроенным методом
-#     disp=True
-# )
 
 
-
-    u_de = optimize_with_progress()
-    
-    # 2) Локальная доводка LM (начиная с решения DE)
-    res_lm = least_squares(
+def lm():
+    return least_squares(
         residuals_rel_safe,
         u_de,
         jac='2-point',
         method='lm',
         loss='linear',
-        xtol=1e-12, ftol=1e-12, gtol=1e-12,
-        max_nfev=100
+        xtol=1e-12, 
+        ftol=1e-12, 
+        gtol=1e-12,
+        max_nfev = 1000
     )
-    
+
+
+# The function for sending email when the program is finished. If you want to send email to your mail, please change the config in the function. If you do not know the config, ask Deepseek or Chatgpt to know how to change it to your config. The reciver e-mail address is to_addr. If you want to send it to yourself, please fill in the corresponding parameter of this position with your own email address when making the call.
+def send_qq_email(subject, content, to_addr):
+    # 配置参数
+    mail_host = "smtp.qq.com"       # SMTP服务器
+    mail_port = 465                 # SSL端口
+    mail_user = "1073407174@qq.com"     # 你的QQ邮箱
+    mail_pass = "oiubstkloizdbedg"  # SMTP授权码（不是邮箱密码！）
+
+    # 创建邮件内容
+    msg = MIMEText(content, 'plain', 'utf-8')
+    msg['Subject'] = Header(subject, 'utf-8')
+    msg['From'] = mail_user
+    msg['To'] = to_addr
+
+    # 发送邮件
+    try:
+        smtp = smtplib.SMTP_SSL(mail_host, mail_port)
+        smtp.login(mail_user, mail_pass)
+        smtp.sendmail(mail_user, [to_addr], msg.as_string())
+        print("Email sent successfully")
+    except Exception as e:
+        print(f"发送失败: {str(e)}")
+    finally:
+        smtp.quit()
+
+# 函数主体部分
+if __name__ == '__main__':
+
+    start_time = time.time()
+    res_de = de()
+    u_de = res_de.x
+    res_lm = lm()
     u_opt = res_lm.x
     p_opt = p.copy()
     for k,val in zip(param_keys, np.exp(u_opt)):
@@ -575,16 +492,33 @@ def optimize_with_progress():
         
     FLY_fit = simulate_FLY_from_u(u_opt)
     
-    plt.scatter(t_exp, FLY_exp, s=10, label='experiment data')
-    plt.plot(t_exp, FLY_fit, '-', lw=2, label='Model data (LM + soft_L1)')
-    plt.xscale('log'); plt.xlabel('t, с'); plt.ylabel('FLY')
-    plt.legend(); plt.tight_layout(); plt.show()
+    # 绘制实验数据（散点）和模型数据（曲线）
+    plt.scatter(t_exp, FLY_exp, s=10, label='Experiment Data')
+    plt.plot(t_exp, FLY_fit, '-', label='Model', linewidth=2)
     
+    # 设置 x 轴为对数坐标
+    plt.xscale('log')  # 以 10 为底的对数坐标
+    
+    # 设置坐标轴标签、标题和图例
+    plt.xlabel('Time (ms) (log scale)')  # 添加 log scale 说明
+    plt.ylabel('FLY Intensity')
+    plt.title('Model Data (Logarithmic Time Axis)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', alpha=0.5)  # 同时显示主次网格线
+    
+    # 保存图像并显示
+    plt.savefig(PATHS["output_plot"], dpi=300, bbox_inches='tight')
+    plt.show()
     df = pd.DataFrame.from_dict(p_opt, orient='index', columns=['Value'])
-    df.to_csv('parameters.csv', float_format='%.4g')  # 保存CSV
-    
+    df.to_csv(PATHS["output_csv"], float_format='%.4g')  # 保存CSV
+    total_time = time.time() - start_time
+    print(f"程序总运行时间: {format_time(total_time)}")
 
-# results_df.to_csv('simulation_results.csv', index=False)
-print("Simulation completed. Results saved to simulation_results.csv")
+    send_qq_email(
+    "程序运行完成通知", 
+    f"{sample_name} 优化已完成！\n 程序总运行时间: {format_time(total_time)}", 
+    "171240520@smail.nju.edu.cn"  # 接收邮箱
+    )
+
 
 

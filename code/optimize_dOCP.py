@@ -1,5 +1,3 @@
-# 对y2进行优化
-# 添加了计时功能 time 
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import differential_evolution, least_squares
@@ -10,58 +8,41 @@ import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
 import time
-#from tqdm import tqdm
-import functools
 
+# === Definition of path function ===
+def get_paths(keyword):
+    return {
+        "data": f"../exp_data/{keyword}_data.csv",          
+        "output_csv": f"../opt_par/{keyword}/parameters_{keyword}.csv",
+        "output_plot": f"../plot/{keyword}/optimized_logx_{keyword}.png"
+    }
+
+# Which sample data used 
+sample_name = "dOCP"
+
+PATHS = get_paths(sample_name)
+k_1 = 4e6
+sk = 1.25e-06
+# Neglect the warnings 
 np.seterr(all='ignore')
 np.seterr(over='ignore')
-cpu_core = 1 # 更改使用的cpu核心数
 
+# No test prove that the cpu_core can accelerate this caluation
+cpu_core = 1 
 
-def timeit(func):
-    """可序列化的计时装饰器"""
-    @functools.wraps(func)  # 保留原函数信息
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        print(f"{func.__name__} 耗时: {time.perf_counter()-start:.4f}s")
-        return result
-    return wrapper
-
-
-    
-
-# 实验数据读取
-#def exp_data():
-#    data = np.loadtxt(
-#        '250522 Scenedesmus data experiment_1.txt',
-#        delimiter='\t',
-#        converters={0: lambda s: float(s.decode().replace(',','.')),
-#                    1: lambda s: float(s.decode().replace(',','.'))},
-#        skiprows=1
-#    )
-#    t_exp, FLY_exp = data[:,0], data[:,1]
-#    
-#    return t_exp, FLY_exp
-# 将实验数据的时间，和FLY值分别赋予t_exp, FLY_exp
-
-
-# 另一种读取实验数据的方式，分别将时间和FLY值赋予experimental_times和experimental_value
-experimental_data = pd.read_csv('y2_data.csv')  # 
+# If you want to use another csv make sure the csv only have 2 conlums. 1st conlum should be named time and 2nd conlum should be named values or you can change the code to correspond the file
+experimental_data = pd.read_csv(PATHS["data"])  # 
 t_exp = experimental_data['time'].values #
 FLY_exp = experimental_data['values'].values #
+def format_time(seconds):
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = round(seconds % 60, 2)
+    return f"{days}天 {hours}小时 {minutes}分钟 {secs}秒"
 
-def plot_exp():
-    plt.figure(figsize=(5,3))
-    plt.scatter(t_exp, FLY_exp, s=8, label='Experimentdata')
-    plt.xscale('log')
-    plt.xlabel('t, с'); plt.ylabel('FLY')
-    plt.legend(); plt.tight_layout()
-    plt.show()
 
-# plot_exp
-
-# 定义参数 p means parameters
+# initial parameters
 p = dict(
 
     k41 = 0.18,
@@ -113,18 +94,13 @@ y0[I['PQH2']] = 0.8
 # 定义时间间隔 1µs … 10s 10** 对结果取10的幂 最后一个参数决定了取多少个间隔
 # t_eval = 10**np.linspace(-6, 4, 601)
 
+# ======================
+# Definition of ODE funcion
+# ======================
 
-# ======================
-# 反应网络ODE定义
-# ======================
-k_1 = 4e6
-sk = 1.25e-6
+# These two variables need to be declared globally because they need to be called when calculating FLY
+
 def reaction_system(params):
-
-
-
-    
-
 
     # del1 = params['del1']
     # del2 = params['del2']
@@ -174,7 +150,6 @@ def reaction_system(params):
     kda = params['kda']
     cm = params['cm']
     d = params['d']
-    # sk= 1e-6 # 荧光比例常数，线性缩放FLY幅值 1e-16
     
     #tauw1 = 0.4 #未被使用
 
@@ -399,12 +374,7 @@ u_high = np.log([p_high[k] for k in param_keys])
 
 bounds = list(zip(u_low, u_high))
 
-
-# @timeit
 def simulate_FLY_from_u(u):
-
-    total_time += time.time() - start
-    
 
     p_fit = p.copy()
     for k,val in zip(param_keys, np.exp(u)):
@@ -421,6 +391,7 @@ def simulate_FLY_from_u(u):
         #first_step = 1e-10,
         #min_step = 1e-12
     )
+
 
     Y = sol.y.T
     FLY = sk*k_1*(
@@ -440,7 +411,6 @@ def loss_sum(u):
         # 返回大值使优化器避开无效参数
         return np.inf
         
-# @timeit
 def residuals_rel_safe(u):
     try:
         FLY = simulate_FLY_from_u(u)
@@ -449,15 +419,13 @@ def residuals_rel_safe(u):
             raise ValueError
         return r
     except:
-        # большой штраф, если ODE не решилось или появились NaN/∞
         return np.ones_like(FLY_exp) * 1e6
 
-@timeit
 def de():
         return differential_evolution(
             loss_sum,
             bounds,
-            maxiter=40,
+            maxiter=100,
             popsize=15,
             tol=1e-3,
             workers= cpu_core,
@@ -467,15 +435,11 @@ def de():
         )
 
 
-
-
-# 2) Локальная доводка LM (начиная с решения DE)
-@timeit
 def lm():
     return least_squares(
         residuals_rel_safe,
         u_de,
-        jac='3-point',
+        jac='2-point',
         method='lm',
         loss='linear',
         xtol=1e-12, 
@@ -484,8 +448,8 @@ def lm():
         max_nfev = 1000
     )
 
-    # 程序完成后发送邮件
 
+# The function for sending email when the program is finished. If you want to send email to your mail, please change the config in the function. If you do not know the config, ask Deepseek or Chatgpt to know how to change it to your config. The reciver e-mail address is to_addr. If you want to send it to yourself, please fill in the corresponding parameter of this position with your own email address when making the call.
 def send_qq_email(subject, content, to_addr):
     # 配置参数
     mail_host = "smtp.qq.com"       # SMTP服务器
@@ -504,7 +468,7 @@ def send_qq_email(subject, content, to_addr):
         smtp = smtplib.SMTP_SSL(mail_host, mail_port)
         smtp.login(mail_user, mail_pass)
         smtp.sendmail(mail_user, [to_addr], msg.as_string())
-        print("邮件发送成功")
+        print("Email sent successfully")
     except Exception as e:
         print(f"发送失败: {str(e)}")
     finally:
@@ -512,6 +476,8 @@ def send_qq_email(subject, content, to_addr):
 
 # 函数主体部分
 if __name__ == '__main__':
+
+    start_time = time.time()
     res_de = de()
     u_de = res_de.x
     res_lm = lm()
@@ -541,21 +507,18 @@ if __name__ == '__main__':
     plt.grid(True, which='both', linestyle='--', alpha=0.5)  # 同时显示主次网格线
     
     # 保存图像并显示
-    plt.savefig('plot/comparison_plot_logx_y3.png', dpi=300, bbox_inches='tight')
+    plt.savefig(PATHS["output_plot"], dpi=300, bbox_inches='tight')
     plt.show()
     df = pd.DataFrame.from_dict(p_opt, orient='index', columns=['Value'])
-    df.to_csv('csv/parameters_y3.csv', float_format='%.4g')  # 保存CSV
-    # results_df = simulate_system()
-    
-    # 保存数据到CSV
-    # results_df.to_csv('simulation_results.csv', index=False)
-    print("Simulation completed. Results saved to simulation_results.csv")
+    df.to_csv(PATHS["output_csv"], float_format='%.4g')  # 保存CSV
+    total_time = time.time() - start_time
+    print(f"程序总运行时间: {format_time(total_time)}")
+
     send_qq_email(
     "程序运行完成通知", 
-    f"y3优化已完成！", 
+    f"{sample_name} 优化已完成！\n 程序总运行时间: {format_time(total_time)}", 
     "171240520@smail.nju.edu.cn"  # 接收邮箱
     )
 
-# f"优化已完成！最佳参数: k1={p_opt['k1']:.}", 
 
 
