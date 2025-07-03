@@ -8,6 +8,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
 import time
+from dotenv import load_dotenv
+import os
 
 # === Definition of path function ===
 def get_paths(keyword):
@@ -450,29 +452,31 @@ def lm():
 
 
 # The function for sending email when the program is finished. If you want to send email to your mail, please change the config in the function. If you do not know the config, ask Deepseek or Chatgpt to know how to change it to your config. The reciver e-mail address is to_addr. If you want to send it to yourself, please fill in the corresponding parameter of this position with your own email address when making the call.
-def send_qq_email(subject, content, to_addr):
+def send_qq_email(subject, content):
     # 配置参数
+    load_dotenv()
     mail_host = "smtp.qq.com"       # SMTP服务器
     mail_port = 465                 # SSL端口
-    mail_user = "1073407174@qq.com"     # 你的QQ邮箱
-    mail_pass = "oiubstkloizdbedg"  # SMTP授权码（不是邮箱密码！）
+    mail_user = os.getenv("SMTP_QQ_EMAIL")   # 你的QQ邮箱
+    mail_pass = os.getenv("SMTP_QQ_PASSWORD")   # SMTP授权码（不是邮箱密码！）
 
     # 创建邮件内容
     msg = MIMEText(content, 'plain', 'utf-8')
     msg['Subject'] = Header(subject, 'utf-8')
     msg['From'] = mail_user
-    msg['To'] = to_addr
+    msg['To'] = os.getenv("TO_ADDRESS")
 
     # 发送邮件
     try:
         smtp = smtplib.SMTP_SSL(mail_host, mail_port)
         smtp.login(mail_user, mail_pass)
-        smtp.sendmail(mail_user, [to_addr], msg.as_string())
+        smtp.sendmail(mail_user, [os.getenv("TO_ADDRESS")], msg.as_string())
         print("Email sent successfully")
     except Exception as e:
         print(f"发送失败: {str(e)}")
     finally:
         smtp.quit()
+
 
 # 函数主体部分
 if __name__ == '__main__':
@@ -516,8 +520,7 @@ if __name__ == '__main__':
 
     send_qq_email(
     "程序运行完成通知", 
-    f"{sample_name} 优化已完成！\n 程序总运行时间: {format_time(total_time)}", 
-    "171240520@smail.nju.edu.cn"  # 接收邮箱
+    f"{sample_name} 优化已完成！\n 程序总运行时间: {format_time(total_time)}"
     )
 
 
