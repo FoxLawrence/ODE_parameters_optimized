@@ -7,131 +7,36 @@ from multiprocessing import Pool
 import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
-import time
-#from tqdm import tqdm
-import functools
-
-def timeit(func):
-    """可序列化的计时装饰器"""
-    @functools.wraps(func)  # 保留原函数信息
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        print(f"{func.__name__} 耗时: {time.perf_counter()-start:.4f}s")
-        return result
-    return wrapper
-
-
     
 np.seterr(all='ignore')
 np.seterr(over='ignore')
 cpu_core = 1 # 更改使用的cpu核心数
-# 实验数据读取
-#def exp_data():
-#    data = np.loadtxt(
-#        '250522 Scenedesmus data experiment_1.txt',
-#        delimiter='\t',
-#        converters={0: lambda s: float(s.decode().replace(',','.')),
-#                    1: lambda s: float(s.decode().replace(',','.'))},
-#        skiprows=1
-#    )
-#    t_exp, FLY_exp = data[:,0], data[:,1]
-#    
-#    return t_exp, FLY_exp
-# 将实验数据的时间，和FLY值分别赋予t_exp, FLY_exp
 
+# === Definition of path function ===
+def get_paths(keyword):
+    return {
+        "data": f"../exp_data/{keyword}_data.csv",          
+        "opt_par_csv": f"../opt_par/{keyword}/parameters_{keyword}.csv",
+        "output_plot": f"../plot/{keyword}/compare_logx_{keyword}.png",
+        "output_csv": f"../simulation_data/{keyword}/simulations_{keyword}.csv"
+        
+    }
 
-# 另一种读取实验数据的方式，分别将时间和FLY值赋予experimental_times和experimental_value
-experimental_data = pd.read_csv('y1_data.csv')  # 
+# Which sample data used 
+sample_name = "${sample_name}"
+PATHS = get_paths(sample_name)
+
+experimental_data = pd.read_csv(PATHS["data"])  # 
 t_exp = experimental_data['time'].values #
 FLY_exp = experimental_data['values'].values #
 
-def plot_exp():
-    plt.figure(figsize=(5,3))
-    plt.scatter(t_exp, FLY_exp, s=8, label='Experimentdata')
-    plt.xscale('log')
-    plt.xlabel('t, с'); plt.ylabel('FLY')
-    plt.legend(); plt.tight_layout()
-    plt.show()
-
-# plot_exp
-
+df_opt_par = pd.read_csv(PATHS["opt_par_csv"], header = 0, names=['key', 'value'])
+k_1 = 4e6
+sk = ${sk_value}
 # 定义参数 p means parameters
-p_opt_1 = dict(
-
-    k41 = 0.01949,
-    KK41 = 6982,
-    k51 = 1.182e+04,
-    k52 = 52.27,
-    k53 = 4.113e+04,
-    k54 = 5.889,
-    kpq = 4953,
-    pot1 = 1.937e-05,
-    pot2 = 0.000918,
-    pot3 = 0.00101,
-    kp680 = 3.198e+05,
-    tauc = 4.317,
-    kcar = 6.055,
-    kda = 1.939e+04,
-    cm = 140.2,
-    d = 0.08639,
-    tauhp = 368.3,
-    tauhp1 = 33.13,
-    tauhn = 66.17,
-    taupt = 24.63,
-    taupt1 = 875.4
-)
-p_opt_2 = dict(
-    k41 = 0.02426,
-    KK41 = 13.63,
-    k51 = 5.463e+05,
-    k52 = 609.5,
-    k53	= 1.745e+05,
-    k54	= 331,
-    kpq	= 129.2,
-    pot1 = 3.193e-05,
-    pot2 = 0.01512,
-    pot3 = 6.394e-06,
-    kp680 = 3066,
-    tauc = 0.2243,
-    kcar = 2.045,
-    kda = 8671,
-    cm = 1.875,
-    d = 0.00362,
-    tauhp = 309.1,
-    tauhp1 = 7.113,
-    tauhn = 0.2515,
-    taupt = 0.2008,
-    taupt1 = 3533
-)
+p_opt = dict(zip(df_opt_par['key'], df_opt_par['value']))
 
 p_raw = dict(
-#    del1 = 0.5,
-#    del2 = 0.3,
-#    del3 = 0.1,
-#    del4 = 0.1,
-#    Pool1 = 16.2,
-#    Pool2 = 1.62,
-
-#    k1= 3e9,  #原数值0.54 介于k3 = 3e9 fixed 
-#    k_1= 4e6, # fixed from article
-#    # antn=100, # fixed article is 112
-#    k2=320000000, # fixed 32000000000/100
-#    KK2 = 20, # fixed from article
-#    k3 = 3e9, # fixed from article
-#    KK3 = 1e7, # fixed from article
-#    KK4 = 80, # fixed from article
-#    tauw = 0.1, # fixed from article
-##   k4 = lambda t: 5e4 * np.exp(-t/0.1) + 3.8,
-##   k4 = 5e4 * np.exp(-t/tauw)+3.8, # fixed from article 
-#    k7 = 2500, # fixed from article
-#    KK7 = 12.5, # fixed from article
-#    k14 = 1600, # fixed from article
-#    KK14 = 10, # fixed from article
-#    k21 = 800, # fixed from article and k21-27 = 800
-#    KK21 = 10, # fixed from article
-#    k34 = 100, # fixed from article and k34-40 = 100
-#    KK34 = 20, # fixed from article
     k41 = 0.18,
     KK41 = 1000,
     k51 = 10000,
@@ -189,15 +94,8 @@ t_eval = 10**np.linspace(-6, 4, 601)
 # ======================
 # 反应网络ODE定义
 # ======================
-k_1 = 4e6
-sk = 1e-6 # for y1
-# sk = 1.25e-6 # for y3
 
 def reaction_system(params):
-
-
-
-    
 
 
     del1 = 0.5
@@ -210,7 +108,7 @@ def reaction_system(params):
     k1= 3e9  #原数值0.54 介于k3 = 3e9 fixed 
     # k_1= 4e6 # fixed from article
     # antn=100, # fixed article is 112
-    k2 = 20000000 # fixed 32000000000/100
+    k2 = 320000000 # fixed 32000000000/100
     KK2 = 20 # fixed from article
     k3 = 3e9 # fixed from article
     KK3 = 1e7 # fixed from article
@@ -456,16 +354,44 @@ def reaction_system(params):
 
 
 # 对反应方程进行ODE求解
-@timeit
 def simulate_system():
     results = {
         'time': [],
         'FLY': []
     }
     # solver = reaction_system(t,y)
-    solver_rhs = reaction_system(p_opt_2)
+    solver_opt = reaction_system(p_opt)
     # 可能需要添加第一步的时间要到e-10的量级
-    sol = solve_ivp(
+    sol_opt = solve_ivp(
+        solver_opt,
+        (t_eval[0], t_eval[-1]), # 设置步长范围
+        y0,                      # 设置ODE方程
+        t_eval = t_exp,
+        method = 'LSODA',          # 设置计算方法 ‘BDF’ 'LSODA'
+        rtol = 1e-5,
+        atol = 1e-7,
+        first_step = 1e-10
+    )
+
+
+
+    Y_opt = sol_opt.y.T
+
+    
+    obs_opt = dict(
+        FLY = sk* k_1*(Y_opt[:,I['x2']]+Y_opt[:,I['x6']]
+                                +Y_opt[:,I['y2']]+Y_opt[:,I['y6']]
+                                +Y_opt[:,I['z2']]+Y_opt[:,I['z6']]
+                                +Y_opt[:,I['g2']]+Y_opt[:,I['g6']]),
+    )
+    df_opt = pd.DataFrame({
+        'time': sol_opt.t,
+        'FLY': obs_opt['FLY']
+    }).dropna()
+
+    
+    solver_rhs = reaction_system(p_raw)
+    sol_raw = solve_ivp(
         solver_rhs,
         (t_eval[0], t_eval[-1]), # 设置步长范围
         y0,                      # 设置ODE方程
@@ -478,53 +404,23 @@ def simulate_system():
 
 
 
-    Y = sol.y.T
-    time_log = np.log10(sol.t*1e3) # 以毫秒作单位
+    Y = sol_raw.y.T
 
-    obs = dict(
+    obs_raw = dict(
         FLY = sk* k_1*(Y[:,I['x2']]+Y[:,I['x6']]
                                 +Y[:,I['y2']]+Y[:,I['y6']]
                                 +Y[:,I['z2']]+Y[:,I['z6']]
                                 +Y[:,I['g2']]+Y[:,I['g6']]),
-        # pott = 200*pt_arr,
-        # pHn  = -np.log10(0.001*Hn_arr)*0.4,
-        # pHp  = -np.log10(0.001*Hp_arr)*0.4,
-        # dpH  = (-np.log10(0.001*Hn_arr)*0.4
-        #         - (-np.log10(0.001*Hp_arr)*0.4)),
-        # xz2  = 1.8e9*(Y[:,I['x2']]+Y[:,I['y2']]+Y[:,I['g2']]+Y[:,I['z2']])/1.62,
-        # xz6  = 1.8e9*(Y[:,I['x6']]+Y[:,I['y6']]+Y[:,I['g6']]+Y[:,I['z6']])/1.62,
-        # xz4  = 500*(Y[:,I['x4']]+Y[:,I['y4']]+Y[:,I['g4']]+Y[:,I['z4']])/1.62,
-        # xz5  = 500*(Y[:,I['x5']]+Y[:,I['y5']]+Y[:,I['g5']]+Y[:,I['z5']])/1.62,
-        # xz45 = (500*(Y[:,I['x4']]+Y[:,I['y4']]+Y[:,I['g4']]+Y[:,I['z4']])
-        #         +500*(Y[:,I['x5']]+Y[:,I['y5']]+Y[:,I['g5']]+Y[:,I['z5']]))/1.62,
-        # yy1  = 1000*Y[:,I['y1']]/1.62,
-        # yy17 = 1000*(Y[:,I['y1']]+Y[:,I['y2']]+Y[:,I['y3']]+Y[:,I['y4']]
-        #              +Y[:,I['y5']]+Y[:,I['y6']]+Y[:,I['y7']])/1.62,
-        # pqhh = Y[:,I['PQH2']]/(Y[:,I['PQH2']]+Y[:,I['PQ']]+1e-12),
-        # xz3  = 4.5e6*(Y[:,I['x3']]+Y[:,I['y3']]+Y[:,I['g3']]+Y[:,I['z3']])/1.62,
-        # xz7  = 4.5e6*(Y[:,I['x7']]+Y[:,I['y7']]+Y[:,I['g7']]+Y[:,I['z7']])/1.62,
-        # xz347 = 40*np.array(p680_hist)/1.62,
-        # vwoc = 100*(V_hist[:,11]+V_hist[:,4]+V_hist[:,18]+V_hist[:,31]),
-        # vv41 = 10*V_hist[:,41],
-        # xg4  = 40*(Y[:,I['x4']]+Y[:,I['g4']])/1.62,
-        # gg5  = 7050*Y[:,I['g5']]/1.62,
-        # yy5  = 7050*Y[:,I['y5']]/1.62,
-        # zz5  = 7050*Y[:,I['z5']]/1.62,
-        # xx5  = 7050*Y[:,I['x5']]/1.62,
     )
-
-    # 储存FLY
-    df = pd.DataFrame({
-        'time': sol.t,
-        'FLY': obs['FLY']
-    }).dropna()
+    
     # 作图
-
+    time_log = np.log10(sol_opt.t*1e3) # 以毫秒作单位
     plt.figure(figsize=(12, 6))
     
     # 绘制实验数据（散点）和模型数据（曲线）
     plt.scatter(t_exp, FLY_exp, s=10, label='Experiment Data')
-    plt.plot(t_exp, obs['FLY'], '-', label='Model', linewidth=2)
+    plt.plot(t_exp, obs_raw['FLY'], '-', label='Model_raw', linewidth=2)
+    plt.plot(t_exp, obs_opt['FLY'], '-', label='Model_opt', linewidth=2)
     
     # 设置 x 轴为对数坐标
     plt.xscale('log')  # 以 10 为底的对数坐标
@@ -537,12 +433,12 @@ def simulate_system():
     plt.grid(True, which='both', linestyle='--', alpha=0.5)  # 同时显示主次网格线
     
     # 保存图像并显示
-    plt.savefig('plot/plot_y1_simluate_logx_opt_2.png', dpi=300, bbox_inches='tight')
+    plt.savefig(PATHS["output_plot"], dpi=300, bbox_inches='tight')
     plt.show()
     
-    return df
+    return df_opt
 results_df = simulate_system()
 
 # 保存数据到CSV
-results_df.to_csv('simulation_results.csv', index=False)
+results_df.to_csv(PATHS["output_csv"], index=False)
 print("Simulation completed. Results saved to simulation_results.csv")
