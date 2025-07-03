@@ -13,9 +13,9 @@ y3 means dOCP
 ## Environment
 .env.example shows the example of environment. If you do not want to use the function of sending email when the program is finished, you can ignore it and delete the statements related to template_optimize.py. Regenerate the python file for optimize.
 
-'''
+```bash
 python generate_optimize.py
-'''
+```
 ### code folder
 **code** folder inculde all python code
 
