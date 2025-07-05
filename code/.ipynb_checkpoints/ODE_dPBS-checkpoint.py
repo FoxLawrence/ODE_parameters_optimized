@@ -7,67 +7,65 @@ from multiprocessing import Pool
 import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
-import time
-from dotenv import load_dotenv
-import os
+    
+np.seterr(all='ignore')
+np.seterr(over='ignore')
+cpu_core = 1 # 更改使用的cpu核心数
 
 # === Definition of path function ===
 def get_paths(keyword):
     return {
         "data": f"../exp_data/{keyword}_data.csv",          
-        "output_csv": f"../opt_par/{keyword}/parameters_{keyword}.csv",
-        "output_plot": f"../plot/{keyword}/optimized_logx_{keyword}.png"
+        "opt_par_csv": f"../opt_par/{keyword}/parameters_{keyword}.csv",
+        "output_plot": f"../plot/{keyword}/compare_logx_{keyword}.png",
+        "output_csv": f"../simulation_data/{keyword}/simulations_{keyword}.csv"
+        
     }
 
 # Which sample data used 
 sample_name = "dPBS"
-
 PATHS = get_paths(sample_name)
-k_1 = 4e6
-sk = 2.6e-07
-# Neglect the warnings 
-np.seterr(all='ignore')
-np.seterr(over='ignore')
 
-# No test prove that the cpu_core can accelerate this caluation
-cpu_core = 2 
-
-# If you want to use another csv make sure the csv only have 2 conlums. 1st conlum should be named time and 2nd conlum should be named values or you can change the code to correspond the file
 experimental_data = pd.read_csv(PATHS["data"])  # 
 t_exp = experimental_data['time'].values #
 FLY_exp = experimental_data['values'].values #
-def format_time(seconds):
-    days = int(seconds // 86400)
-    hours = int((seconds % 86400) // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = round(seconds % 60, 2)
-    return f"{days}天 {hours}小时 {minutes}分钟 {secs}秒"
+
+df_opt_par = pd.read_csv(PATHS["opt_par_csv"], header = 0, names=['key', 'value'])
+k_1 = 4e6
+sk = 2.6e-07
+# 定义参数 p means parameters
+p_opt = dict(zip(df_opt_par['key'], df_opt_par['value']))
+
+p_raw = dict(
+    k41 = 0.18,
+    KK41 = 1000,
+    k51 = 10000,
+    k52 = 8,
+    k53 = 500000,
+    k54 = 6,
+    
+    
+    kpq = 10000,
 
 
-# initial parameters
-p = dict(
+    pot1 = 0.0016,
+    pot2 = 0.0046,
+    pot3 = 0.003,
+    kp680 = 1100000,
+    tauc = 0.06,
+    kcar = 10,
+    kda = 150000,
+    cm = 5,
+    d = 0.5,
+#    sk=1e-6, # 荧光比例常数，线性缩放FLY幅值 1e-16
+    
+    #tauw1 = 0.4 #未被使用
 
-k41 = 0.5989,
-KK41 = 1.261e+04,
-k51 = 1.297e+06,
-k52 = 12.68,
-k53 = 4.051e+04,
-k54 = 3.783,
-kpq = 2.19e+04,
-pot1 = 0.02383,
-pot2 = 0.3184,
-pot3 = 0.02203,
-kp680 = 1.316e+04,
-tauc = 14.94,
-kcar = 1295,
-kda = 6.396e+04,
-cm = 2033,
-d = 0.4324,
-tauhp = 356.1,
-tauhp1 = 4.277,
-tauhn = 123,
-taupt = 0.2645,
-taupt1 = 7565
+    tauhp = 10,
+    tauhp1 = 100,
+    tauhn = 720,
+    taupt = 250,
+    taupt1 = 500,
 )
 
 
@@ -90,31 +88,25 @@ y0[I['PQH2']] = 0.8
 
 
 # 定义时间间隔 1µs … 10s 10** 对结果取10的幂 最后一个参数决定了取多少个间隔
-# t_eval = 10**np.linspace(-6, 4, 601)
+t_eval = 10**np.linspace(-6, 4, 601)
+
 
 # ======================
-# Definition of ODE funcion
+# 反应网络ODE定义
 # ======================
-
-# These two variables need to be declared globally because they need to be called when calculating FLY
 
 def reaction_system(params):
 
-    # del1 = params['del1']
-    # del2 = params['del2']
-    # del3 = params['del3']
-    # del4 = params['del4']
-    
-    # Pool1 = params['Pool1']
-    # Pool2 = params['Pool2']
+
     del1 = 0.5
     del2 = 0.3
     del3 = 0.1
     del4 = 0.1
     Pool1 = 16.2
     Pool2 = 1.62
+
     k1= 3e9  #原数值0.54 介于k3 = 3e9 fixed 
-    #k_1= 4e6 # fixed from article
+    # k_1= 4e6 # fixed from article
     # antn=100, # fixed article is 112
     k2 = 320000000 # fixed 32000000000/100
     KK2 = 20 # fixed from article
@@ -148,6 +140,7 @@ def reaction_system(params):
     kda = params['kda']
     cm = params['cm']
     d = params['d']
+    # sk= 1e-6 # 荧光比例常数，线性缩放FLY幅值 1e-16
     
     #tauw1 = 0.4 #未被使用
 
@@ -359,142 +352,75 @@ def reaction_system(params):
     return rhs
 
 
-# 筛选大于0的参数
-param_keys = [k for k,v in p.items() if v>0]
-# 使用x0储存这些参数
-x0 = np.array([p[k] for k in param_keys])
-# 用u0进行对数化运算
-u0 = np.log(x0)
-p_low  = {k: max(p[k]*1e-3, 1e-12) for k in param_keys}  ## 
-p_high = {k:        p[k]*1e3          for k in param_keys}
-u_low  = np.log([p_low[k]  for k in param_keys])
-u_high = np.log([p_high[k] for k in param_keys])
 
-bounds = list(zip(u_low, u_high))
-
-def simulate_FLY_from_u(u):
-
-    p_fit = p.copy()
-    for k,val in zip(param_keys, np.exp(u)):
-        p_fit[k] = val
-    rhs = reaction_system(p_fit)
-    sol = solve_ivp(
-        rhs,
-        (t_exp[0], t_exp[-1]), # 设置步长范围
+# 对反应方程进行ODE求解
+def simulate_system():
+    results = {
+        'time': [],
+        'FLY': []
+    }
+    # solver = reaction_system(t,y)
+    solver_opt = reaction_system(p_opt)
+    # 可能需要添加第一步的时间要到e-10的量级
+    sol_opt = solve_ivp(
+        solver_opt,
+        (t_eval[0], t_eval[-1]), # 设置步长范围
         y0,                      # 设置ODE方程
         t_eval = t_exp,
-        method = 'BDF',          # 设置计算方法 ‘BDF’ 'LSODA'
-        rtol = 1e-4,
+        method = 'LSODA',          # 设置计算方法 ‘BDF’ 'LSODA'
+        rtol = 1e-5,
         atol = 1e-7,
-        #first_step = 1e-10,
-        #min_step = 1e-12
+        first_step = 1e-10
     )
 
 
-    Y = sol.y.T
-    FLY = sk*k_1*(
-            Y[:,I['x2']]+Y[:,I['x6']]
-          + Y[:,I['y2']]+Y[:,I['y6']]
-          + Y[:,I['z2']]+Y[:,I['z6']]
-          + Y[:,I['g2']]+Y[:,I['g6']]
-        )
-    return FLY
 
+    Y_opt = sol_opt.y.T
 
-def loss_sum(u):
-    try:
-        r = residuals_rel_safe(u)
-        return np.sum(r**2)
-    except:
-        # 返回大值使优化器避开无效参数
-        return np.inf
-        
-def residuals_rel_safe(u):
-    try:
-        FLY = simulate_FLY_from_u(u)
-        r = (FLY - FLY_exp) / FLY_exp
-        if not np.all(np.isfinite(r)):
-            raise ValueError
-        return r
-    except:
-        return np.ones_like(FLY_exp) * 1e6
-
-def de():
-        return differential_evolution(
-            loss_sum,
-            bounds,
-            maxiter=100,
-            popsize=15,
-            tol=1e-3,
-            workers= cpu_core,
-            polish=False,   
-            updating='deferred',
-            disp=True
-        )
-
-
-def lm():
-    return least_squares(
-        residuals_rel_safe,
-        u_de,
-        jac='2-point',
-        method='lm',
-        loss='linear',
-        xtol=1e-12, 
-        ftol=1e-12, 
-        gtol=1e-12,
-        max_nfev = 1000
-    )
-
-
-# The function for sending email when the program is finished. If you want to send email to your mail, please change the config in the function. If you do not know the config, ask Deepseek or Chatgpt to know how to change it to your config. The reciver e-mail address is to_addr. If you want to send it to yourself, please fill in the corresponding parameter of this position with your own email address when making the call.
-def send_qq_email(subject, content):
-    # 配置参数
-    load_dotenv()
-    mail_host = "smtp.qq.com"       # SMTP服务器
-    mail_port = 465                 # SSL端口
-    mail_user = os.getenv("SMTP_QQ_EMAIL")   # 你的QQ邮箱
-    mail_pass = os.getenv("SMTP_QQ_PASSWORD")   # SMTP授权码（不是邮箱密码！）
-
-    # 创建邮件内容
-    msg = MIMEText(content, 'plain', 'utf-8')
-    msg['Subject'] = Header(subject, 'utf-8')
-    msg['From'] = mail_user
-    msg['To'] = os.getenv("TO_ADDRESS")
-
-    # 发送邮件
-    try:
-        smtp = smtplib.SMTP_SSL(mail_host, mail_port)
-        smtp.login(mail_user, mail_pass)
-        smtp.sendmail(mail_user, [os.getenv("TO_ADDRESS")], msg.as_string())
-        print("Email sent successfully")
-    except Exception as e:
-        print(f"发送失败: {str(e)}")
-    finally:
-        smtp.quit()
-
-
-# 函数主体部分
-if __name__ == '__main__':
-
-    start_time = time.time()
-    res_de = de()
-    u_de = res_de.x
-    res_lm = lm()
-    u_opt = res_lm.x
-    p_opt = p.copy()
-    for k,val in zip(param_keys, np.exp(u_opt)):
-        p_opt[k] = val
     
-    print("DE→LM success:", res_lm.success, res_lm.message)
-    for k,v in p_opt.items():
-        print(f"{k} = {v:.4g}")
-        
-    FLY_fit = simulate_FLY_from_u(u_opt)
+    obs_opt = dict(
+        FLY = sk* k_1*(Y_opt[:,I['x2']]+Y_opt[:,I['x6']]
+                                +Y_opt[:,I['y2']]+Y_opt[:,I['y6']]
+                                +Y_opt[:,I['z2']]+Y_opt[:,I['z6']]
+                                +Y_opt[:,I['g2']]+Y_opt[:,I['g6']]),
+    )
+    df_opt = pd.DataFrame({
+        'time': sol_opt.t,
+        'FLY': obs_opt['FLY']
+    }).dropna()
+
+    
+    solver_rhs = reaction_system(p_raw)
+    sol_raw = solve_ivp(
+        solver_rhs,
+        (t_eval[0], t_eval[-1]), # 设置步长范围
+        y0,                      # 设置ODE方程
+        t_eval = t_exp,
+        method = 'LSODA',          # 设置计算方法 ‘BDF’ 'LSODA'
+        rtol = 1e-5,
+        atol = 1e-7,
+        first_step = 1e-10
+    )
+
+
+
+    Y = sol_raw.y.T
+
+    obs_raw = dict(
+        FLY = sk* k_1*(Y[:,I['x2']]+Y[:,I['x6']]
+                                +Y[:,I['y2']]+Y[:,I['y6']]
+                                +Y[:,I['z2']]+Y[:,I['z6']]
+                                +Y[:,I['g2']]+Y[:,I['g6']]),
+    )
+    
+    # 作图
+    time_log = np.log10(sol_opt.t*1e3) # 以毫秒作单位
+    plt.figure(figsize=(12, 6))
     
     # 绘制实验数据（散点）和模型数据（曲线）
     plt.scatter(t_exp, FLY_exp, s=10, label='Experiment Data')
-    plt.plot(t_exp, FLY_fit, '-', label='Model', linewidth=2)
+    plt.plot(t_exp, obs_raw['FLY'], '-', label='Model_raw', linewidth=2)
+    plt.plot(t_exp, obs_opt['FLY'], '-', label='Model_opt', linewidth=2)
     
     # 设置 x 轴为对数坐标
     plt.xscale('log')  # 以 10 为底的对数坐标
@@ -509,15 +435,10 @@ if __name__ == '__main__':
     # 保存图像并显示
     plt.savefig(PATHS["output_plot"], dpi=300, bbox_inches='tight')
     plt.show()
-    df = pd.DataFrame.from_dict(p_opt, orient='index', columns=['Value'])
-    df.to_csv(PATHS["output_csv"], float_format='%.4g')  # 保存CSV
-    total_time = time.time() - start_time
-    print(f"程序总运行时间: {format_time(total_time)}")
+    
+    return df_opt
+results_df = simulate_system()
 
-    send_qq_email(
-    "程序运行完成通知", 
-    f"{sample_name} 优化已完成！\n 程序总运行时间: {format_time(total_time)}"
-    )
-
-
-
+# 保存数据到CSV
+results_df.to_csv(PATHS["output_csv"], index=False)
+print("Simulation completed. Results saved to simulation_results.csv")

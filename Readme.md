@@ -4,7 +4,8 @@ y1 means WT
 y2 means dPBS
 
 y3 means dOCP
-
+## Update
+2025-07-05: 尝试优化算法，目前添加缓存机制，并用template保存，现在尝试用numba进行优化，目标优化参数选择，如果有已经优化的参数，则使用已经优化的参数进行
 ## Problems that should be solved
 1. Multiprocessing to accelerate the calculation.
 2. The experiment data of dPBS showed fluctuations in certain areas, which affected the normal optimization process.

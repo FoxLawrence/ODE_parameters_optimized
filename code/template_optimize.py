@@ -30,7 +30,7 @@ np.seterr(all='ignore')
 np.seterr(over='ignore')
 
 # No test prove that the cpu_core can accelerate this caluation
-cpu_core = 1 
+cpu_core = 2 
 
 # If you want to use another csv make sure the csv only have 2 conlums. 1st conlum should be named time and 2nd conlum should be named values or you can change the code to correspond the file
 experimental_data = pd.read_csv(PATHS["data"])  # 
