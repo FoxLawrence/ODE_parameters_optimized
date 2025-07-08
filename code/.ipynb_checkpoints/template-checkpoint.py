@@ -77,7 +77,30 @@ p = dict(
     taupt1 = 500,
 )
 
+def update_params_from_file(keyword, param_dict):
+    """
+    原地更新参数字典，不改变变量名
+    :param keyword: 参数文件关键词
+    :param param_dict: 要更新的字典（变量名p会直接修改）
+    """
+    param_path = f"../opt_par/{keyword}/parameters_{keyword}.csv"
+    
+    if os.path.exists(param_path):
+        try:
+            df = pd.read_csv(param_path)
+            file_params = df.set_index('Unnamed: 0')['Value'].to_dict()
+            
+            # 仅更新已存在的键（安全更新）
+            for k in param_dict.keys():
+                if k in file_params:
+                    param_dict[k] = file_params[k]
+            print(f"从 {param_path} 更新了 {len(file_params)} 个参数")
+        except Exception as e:
+            print(f"参数加载失败，保留默认值。错误: {str(e)}")
+    else:
+        print(f"未找到参数文件 {param_path}，使用默认参数")
 
+update_params_from_file(sample_name, p)
 # 添加变量名列表S
 S = ['x1','x2','x3','x4','x5','x6','x7',
      'y1','y2','y3','y4','y5','y6','y7',
